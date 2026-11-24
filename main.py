@@ -127,3 +127,99 @@ with output_file.open("w", newline="") as csvfile:
             row.append(record_data["codons"].get(codon, 0))
         writer.writerow(row)
 print("CSV export complete:", output_file)
+
+# ==========================================
+# POSITIONAL CODON FREQUENCY HEATMAP
+# ==========================================
+
+import matplotlib.pyplot as plt
+# Store codon counts for each 10-nt window
+window_counts = {}
+window_totals = {}
+# Read the FASTA file again to recover nucleotide positions
+header = None
+sequence_parts = []
+def analyze_sequence(sequence):
+    sequence = sequence.upper()
+    for i in range(0, len(sequence) - 2, 3):
+        codon = sequence[i:i+3]
+        # Assign codon to window based on starting position
+        window = i // 10
+        if codon in all_codons:
+            if window not in window_counts:
+                window_counts[window] = Counter()
+                window_totals[window] = 0
+            window_counts[window][codon] += 1
+            window_totals[window] += 1
+with data_file.open("r") as fasta_file:
+    for line in fasta_file:
+        line = line.strip()
+        if line.startswith(">"):
+            if header is not None:
+                analyze_sequence("".join(sequence_parts))
+            header = line
+            sequence_parts = []
+        else:
+            sequence_parts.append(line)
+# Process final FASTA record
+if header is not None:
+    analyze_sequence("".join(sequence_parts))
+# Organize positional frequency data
+windows = sorted(window_counts.keys())
+frequency_matrix = []
+for codon in all_codons:
+    row = []
+    for window in windows:
+        total = window_totals[window]
+        frequency = (
+            window_counts[window].get(codon, 0) / total
+            if total > 0 else 0
+        )
+        row.append(frequency)
+    frequency_matrix.append(row)
+# Export positional frequency CSV
+positional_csv = (
+    Path(__file__).resolve().parent.parent
+    / "data/positional_codon_frequencies.csv"
+)
+with positional_csv.open("w", newline="") as csvfile:
+    writer = csv.writer(csvfile)
+    window_labels = [
+        f"{w*10}-{w*10+9}" for w in windows
+    ]
+    writer.writerow(["Codon"] + window_labels)
+    for codon, row in zip(all_codons, frequency_matrix):
+        writer.writerow([codon] + row)
+# Generate heatmap
+plt.figure(figsize=(18, 12))
+plt.imshow(
+    frequency_matrix,
+    aspect="auto",
+    interpolation="nearest",
+    cmap="viridis"
+)
+plt.yticks(range(len(all_codons)), all_codons)
+# Display approximately 20 x-axis labels
+tick_step = max(1, len(windows) // 20)
+tick_positions = list(range(0, len(windows), tick_step))
+plt.xticks(
+    tick_positions,
+    [window_labels[i] for i in tick_positions],
+    rotation=45,
+    ha="right"
+)
+plt.xlabel("Nucleotide Position Window (10 nt)")
+plt.ylabel("Codon")
+plt.title("Positional Codon Usage Across Drosophila melanogaster CDS")
+plt.colorbar(label="Relative Codon Frequency")
+plt.tight_layout()
+heatmap_file = (
+    Path(__file__).resolve().parent.parent
+    / "data/positional_codon_heatmap.png"
+)
+plt.savefig(heatmap_file, dpi=300)
+plt.show()
+print("Positional analysis complete!")
+print("Heatmap saved:", heatmap_file)
+print("Frequency data saved:", positional_csv)
+print("Number of windows:", len(windows))
